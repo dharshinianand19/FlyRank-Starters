@@ -1,0 +1,460 @@
+# Capstone Report — Content Decline Prediction & Editorial Prioritization
+
+- **Author:** Dharshini
+- **Lane:** Refresh / Content Opportunity Scoring
+- **Repo:** https://github.com/dharshinianand19/FlyRank-Starters
+
+## 0. Abstract
+
+This project investigates whether historical search-performance metrics can help identify content items at risk of experiencing a decline in future search visibility. It uses the FlyRank Internship Pseudonymized Warehouse Release (v20260703), with 338,853 matched content-month records covering March to June 2026. A Logistic Regression classifier is developed using current impressions, clicks, average search position, and available reporting days, and is compared against majority-class and low-impressions rule-based baselines using a temporal evaluation split. The model achieves 60.93% accuracy, 64.14% precision, 74.89% recall, an F1-score of 0.6910, and ROC-AUC of 0.6004 on the test set, outperforming both reported baselines on the shared evaluation data. The resulting predicted probabilities and ranked recommendations provide FlyRank editors with a decision-support mechanism to prioritize content investigations and identify items that may require further editorial attention.
+
+## 1. Problem framing
+
+The objective of this project is to identify content items that may experience a significant decline in search impressions during the following month.
+
+The research question is:
+
+**Can historical search-performance metrics be used to identify content items that are likely to experience at least a 20% decline in average daily impressions in the subsequent month?**
+
+The unit of analysis is a content-client pair observed over a monthly reporting period. Each observation contains current-month search-performance metrics and a corresponding next-month performance outcome.
+
+The model produces a predicted probability of decline for each eligible content item. These probabilities are used to rank content items and generate a prioritized editorial review queue.
+
+A FlyRank editor can use the output to:
+
+- Identify content items with relatively high predicted decline risk.
+- Investigate changes in impressions, clicks, and search position.
+- Review whether the content remains relevant to its search intent.
+- Decide whether an editorial refresh, further investigation, or routine monitoring is appropriate.
+
+A false negative may cause potentially declining content to be overlooked, while a false positive may result in unnecessary editorial investigation.
+
+Machine learning is useful in this context because several performance indicators can be considered together rather than relying on a single metric or fixed threshold. The model provides a consistent way to prioritize a large number of content records, while leaving the final decision to human editors.
+
+## 2. Data safety
+
+### Dataset source
+
+This project uses the FlyRank Internship — Pseudonymized Warehouse Release (v20260703), a frozen warehouse snapshot exported on July 3, 2026.
+
+The dataset was accessed through the Hugging Face dataset repository:
+
+`FlyRank/internship-warehouse`
+
+Two tables were inspected or accessed:
+
+- `dim_content`: Content metadata, including content type, creation and update dates, word count, search volume, and publication status. This table was downloaded and inspected but was not used to construct the final model features.
+- `fact_content_daily_performance`: Daily performance information, including Google Search Console impressions, clicks, average search position, and reporting availability. Monthly partitions from March through June 2026 were used for the final analysis.
+
+### Data preparation
+
+Monthly performance data was aggregated for each client-content pair.
+
+The following conditions were applied:
+
+- Only records with available Google Search Console data were included.
+- At least 15 reporting days were required for each monthly aggregate.
+- Content items with zero current-month average daily impressions were excluded from target construction.
+- Current-month performance was matched with the subsequent month's performance using pseudonymous client and content identifiers.
+
+The resulting dataset contained 338,853 matched content-month observations.
+
+### Features used
+
+The final Logistic Regression model uses exactly four features:
+
+1. `current_impressions`
+2. `current_clicks`
+3. `current_position`
+4. `current_available_days`
+
+Missing feature values are handled using median imputation, followed by standardization.
+
+### Excluded fields and leakage prevention
+
+Pseudonymous identifiers, including `client_hash_id` and `content_hash_id`, are used only for matching monthly records. They are not included as predictive features.
+
+The following fields are deliberately excluded from model inputs:
+
+- `trend_direction`
+- `trend_pct`
+- `decline_next_month`
+- Client, content, keyword, and URL identifiers.
+
+The target is derived from next-month impressions. Therefore, future performance fields and target-derived information must never be included as current-month features.
+
+The final model uses only information available during the prediction month. No client names, private URLs, or private search queries are intentionally included in the public report.
+
+Pseudonymous identifiers are retained only where required for internal record matching and operational traceability. Internal identifier-bearing files are not intended for public deployment.
+
+## 3. Baseline
+
+Two transparent baselines were implemented to evaluate whether Logistic Regression provides an improvement over simpler approaches.
+
+### A. Majority-class baseline
+
+The majority-class baseline predicts the same class for every test observation based on the training-set majority class.
+
+The training decline rate was 49.49%, meaning the majority class was non-decline.
+
+Consequently, the baseline predicts class 0 for all test records.
+
+### B. Low-impressions rule
+
+The second baseline uses current impressions as a simple decision rule.
+
+The median current impressions from the training data is used as the threshold.
+
+- If current impressions are below the training median, predict decline.
+- Otherwise, predict no decline.
+
+This provides a transparent comparison for determining whether a single performance indicator is sufficient to identify future decline.
+
+### Baseline and model comparison
+
+All three approaches were evaluated using the same temporal test set.
+
+| Model | Accuracy | Precision | Recall | F1 |
+|---|---:|---:|---:|---:|
+| Majority baseline | 41.68% | 0.00% | 0.00% | 0.0000 |
+| Low-impressions rule | 43.97% | 52.15% | 47.77% | 0.4986 |
+| Logistic Regression | **60.93%** | **64.14%** | **74.89%** | **0.6910** |
+
+The Logistic Regression model performs better than both baselines across the reported classification metrics.
+
+The majority baseline is particularly weak because the test-set decline rate is 58.32%, whereas the training-set majority class is non-decline.
+
+The low-impressions rule performs better than the majority baseline but is less effective than Logistic Regression.
+
+Therefore, combining multiple performance indicators provides a more useful baseline comparison than relying only on current impressions.
+
+## 4. Model / analysis
+
+### Model selection
+
+Logistic Regression was selected as the initial supervised learning model because it is computationally efficient, relatively interpretable, and suitable for binary classification.
+
+The objective is to estimate the likelihood that a content item will experience a significant decline in its next-month average daily impressions.
+
+### Target definition
+
+The target variable is `decline_next_month`.
+
+A content item is classified as declining when:
+
+`future_impressions <= 0.8 × current_impressions`
+
+This represents a decline of at least 20% in average daily impressions between consecutive monthly reporting periods.
+
+The target is binary:
+
+- `1` — Decline of at least 20%.
+- `0` — Decline of less than 20%, including no decline or an increase.
+
+### Feature selection
+
+The final feature set contains:
+
+| Feature | Description |
+|---|---|
+| `current_impressions` | Current month's average daily impressions |
+| `current_clicks` | Current month's average daily clicks |
+| `current_position` | Current month's average search position |
+| `current_available_days` | Number of available reporting days |
+
+These features describe the content's current search performance and data availability.
+
+Content metadata, identifiers, and future performance information are excluded from the final model.
+
+### Model configuration
+
+The model is implemented using a Scikit-learn pipeline consisting of:
+
+1. Median imputation for missing feature values.
+2. StandardScaler for feature standardization.
+3. Logistic Regression for binary classification.
+
+The model configuration is:
+
+- `max_iter = 500`
+- `class_weight = "balanced"`
+- `random_state = 42`
+- Classification threshold = 0.5
+
+Class weighting is used to account for the difference in class proportions between the training and test periods.
+
+The model generates predicted probabilities using `predict_proba()`. These probabilities are subsequently used for ranking and editorial prioritization.
+
+## 5. Evaluation
+
+### Evaluation strategy
+
+A chronological split was used to preserve the order of observations and prevent future-month information from entering the training features.
+
+The dataset was divided as follows:
+
+| Dataset | Feature period | Outcome period | Records |
+|---|---|---|---:|
+| Training | March–April 2026 | April–May 2026 | 225,517 |
+| Testing | May 2026 | June 2026 | 113,336 |
+| Total | March–May 2026 | April–June 2026 | 338,853 |
+
+The model was trained using March and April observations and evaluated using May observations against June outcomes.
+
+This provides a temporal evaluation rather than a random train/test split.
+
+### Test-set class distribution
+
+- Training decline rate: 49.49%.
+- Test decline rate: 58.32%.
+- Test non-decline rate: 41.68%.
+
+The test majority-class accuracy is therefore 58.32%, while the training-derived majority baseline achieves 41.68% because it predicts non-decline for every record.
+
+### Model performance
+
+| Metric | Logistic Regression |
+|---|---:|
+| Accuracy | 0.6093 |
+| Precision | 0.6414 |
+| Recall | 0.7489 |
+| F1-score | 0.6910 |
+| ROC-AUC | 0.6004 |
+| Average Precision | 0.6540 |
+
+### Interpretation of evaluation results
+
+The model achieves a recall of 74.89%, indicating that it identifies approximately three-quarters of the actual declining records at the selected 0.5 classification threshold.
+
+Its precision of 64.14% indicates that approximately 64 out of every 100 records predicted as declining are actually declining in the test set.
+
+However, the ROC-AUC of 0.6004 indicates modest discrimination between declining and non-declining content.
+
+The Average Precision score of 0.654 is higher than the test decline base rate of 0.5832, suggesting some improvement over the prevalence-only reference.
+
+### Error analysis
+
+The model's recall indicates that some actual decline cases remain undetected. Approximately 25.11% of actual declining records are missed at the current threshold.
+
+Similarly, approximately 35.86% of predicted decline cases are false positives.
+
+These errors are important in an editorial setting because false positives consume review resources, while false negatives may allow declining content to go unnoticed.
+
+The model therefore provides a prioritization signal rather than a definitive classification of content quality.
+
+### Evaluation limitations
+
+The temporal split does not prevent the same content-client pair from appearing in both training and testing periods. Consequently, the results demonstrate performance on later observations, but do not establish generalization to entirely unseen content or clients.
+
+Only one held-out feature month was evaluated. Additional monthly test periods are required to assess temporal stability.
+
+## 6. Interpretation
+
+The model identifies relationships between current search-performance indicators and subsequent changes in impressions.
+
+The results indicate that combining current impressions, clicks, average position, and reporting availability provides better classification performance than the individual low-impressions rule.
+
+The Logistic Regression model achieves an F1-score of 0.6910 compared with 0.4986 for the low-impressions rule.
+
+This suggests that considering multiple current performance indicators provides a more useful approach to identifying potential future declines than using current impressions alone.
+
+### Important observations
+
+**1. High recall**
+
+The model identifies 74.89% of the actual declining records at the 0.5 threshold. This is useful for an early-warning workflow where missing potential decline cases may be costly.
+
+**2. Moderate precision**
+
+The precision of 64.14% indicates that a meaningful proportion of flagged records do not experience the defined decline. Editorial verification remains necessary.
+
+**3. Modest ranking discrimination**
+
+The ROC-AUC of 0.6004 indicates that the model has limited ability to consistently rank declining records above non-declining records across all possible thresholds.
+
+**4. Impressions alone are insufficient**
+
+The low-impressions baseline performs worse than the Logistic Regression model. This supports evaluating several performance indicators together.
+
+**5. Declining impressions do not necessarily indicate content deterioration**
+
+A reduction in impressions may reflect changes in search demand, competition, seasonality, or other external factors. The target measures an observed performance change rather than editorial quality.
+
+The project does not establish that updating content will reverse a decline or improve search performance.
+
+Feature-level coefficients and their directions should be interpreted only after extracting and reviewing the fitted Logistic Regression coefficients. No causal feature importance claims are made.
+
+## 7. Recommendation
+
+The final recommendation system uses the predicted probability of next-month decline to prioritize content items for editorial investigation.
+
+The ranked output sorts eligible test records in descending order of predicted decline probability.
+
+### Priority 1: High-priority content review
+
+The top 10% of ranked test records are assigned to the high-priority review tier.
+
+Recommended actions:
+
+- Investigate recent impressions and click changes.
+- Examine average search position movements.
+- Review whether the content is outdated or no longer aligned with search intent.
+- Check whether the observed performance change is sustained.
+- Consider a content refresh only when the editorial investigation supports it.
+
+### Priority 2: Secondary investigation
+
+The next 20% of ranked records are assigned to the investigation tier.
+
+Recommended actions:
+
+- Monitor performance changes over subsequent reporting periods.
+- Check the availability and completeness of search data.
+- Investigate potential relevance or freshness issues.
+- Include these records in the next editorial review cycle.
+
+### Priority 3: Routine monitoring
+
+The remaining 70% are assigned to the monitoring tier.
+
+Recommended actions:
+
+- Continue tracking monthly impressions and clicks.
+- Avoid unnecessary editorial changes.
+- Reassess content when new performance data becomes available.
+
+These percentages represent proposed review-capacity allocations rather than experimentally validated risk thresholds. The priority groups should be recalibrated according to actual editorial capacity and validation results.
+
+### Operational use
+
+The ranked output provides:
+
+- Rank
+- Predicted decline probability
+- Recommended action
+- Reason for prioritization
+- Current impressions
+- Current clicks
+- Current average position
+- Available reporting days
+
+A FlyRank editor can begin with the highest-ranked records, inspect the supporting performance information, and decide whether an editorial intervention is justified.
+
+The prediction output is not an automatic refresh instruction.
+
+### Confidence and limitations
+
+Confidence is moderate for using the model as an initial prioritization mechanism within the evaluated period.
+
+The model outperforms both baselines on the reported classification metrics. However, its ROC-AUC of 0.6004 indicates modest discrimination, and the evaluation covers only one held-out month.
+
+Additional rolling time-based validation, content-grouped evaluation, and probability calibration are recommended before wider operational deployment.
+
+A controlled refresh experiment should also be conducted to determine whether refreshing selected content actually improves subsequent search performance.
+
+The model supports editorial investigation and decision-making. It does not establish causality or predict Google's ranking algorithm.
+
+## 8. Reproducibility
+
+### Development environment
+
+The analysis was developed in Python using Google Colab.
+
+The primary libraries include:
+
+- pandas — data manipulation and aggregation.
+- NumPy — numerical operations.
+- DuckDB — monthly Parquet aggregation.
+- Hugging Face Hub — dataset access and downloading.
+- Scikit-learn — preprocessing, Logistic Regression, and evaluation.
+- Matplotlib — visualization and artifact generation.
+- PyArrow — Parquet file support.
+
+### Dataset access
+
+The dataset is accessed through:
+
+`FlyRank/internship-warehouse`
+
+The notebook uses Hugging Face Hub authentication and `hf_hub_download()` to retrieve the required monthly Parquet partitions.
+
+Authentication credentials must be supplied through the notebook login process and must never be committed to the repository.
+
+### Reproduction steps
+
+From a fresh repository clone:
+
+```bash
+git clone https://github.com/dharshinianand19/FlyRank-Starters.git
+
+cd FlyRank-Starters
+
+pip install duckdb huggingface_hub pandas numpy pyarrow scikit-learn matplotlib
+```
+
+Open the following notebook in Google Colab:
+
+`work/notebooks/capstone.ipynb`
+
+Then:
+
+1. Authenticate with Hugging Face if prompted.
+2. Download the March, April, May, and June 2026 performance partitions.
+3. Aggregate monthly performance for each client-content pair.
+4. Match current-month performance with subsequent-month outcomes.
+5. Construct the binary decline target.
+6. Create the chronological training and test datasets.
+7. Train the Logistic Regression pipeline.
+8. Evaluate the majority-class and low-impressions baselines.
+9. Generate predicted probabilities and ranked recommendations.
+10. Generate the paper's charts, tables, and output files.
+
+### Random seed and model configuration
+
+The Logistic Regression model uses:
+
+- `random_state = 42`
+- `max_iter = 500`
+- `class_weight = "balanced"`
+- Median imputation.
+- StandardScaler preprocessing.
+- A classification threshold of 0.5.
+
+The temporal split is deterministic and does not use a random train/test split.
+
+### Output artifacts
+
+The notebook generates the following outputs:
+
+- `ranked_content_recommendations.csv`
+- `monthly_decline_rate.png`
+- `model_comparison.png`
+- `confusion_matrix.png`
+- `roc_curve.png`
+- `precision_recall_curve.png`
+- `top20_recommendations_public.csv`
+
+The complete ranked output is an internal operational artifact. Public-facing versions must exclude pseudonymous content identifiers and future outcome labels.
+
+### Reproducibility verification
+
+The current notebook contains the code for building the training and test frames and calculating the reported metrics.
+
+Before submission, the following should also be committed:
+
+- A saved model metrics CSV containing results for all three approaches.
+- The generated charts and tables used in the deployed paper.
+- A record of the installed Python and package versions.
+- The completed notebook with a successful top-to-bottom execution.
+
+The model's evaluation should be reproducible using the same frozen dataset release and date windows. The test period should not be used for model selection or threshold tuning.
+
+The notebook uses `random_state=42`, and the model pipeline is deterministic under the documented configuration.
+
+## 9. Acknowledgments & data credit
+
+This project was completed as part of the FlyRank ML Internship.
+
+The analysis uses the FlyRank Internship Pseudonymized Warehouse Release (v20260703) for studying historical search-performance patterns and identifying content items that may experience a decline in future impressions.
+
+**Built on the [FlyRank ML Internship dataset](https://flyrank.ai).**
