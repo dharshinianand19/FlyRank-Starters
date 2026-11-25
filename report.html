@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Content Decline Prediction | FlyRank Capstone</title>
+</head>
+<body>
+
+    <header>
+        <h1>Content Decline Prediction &amp; Editorial Prioritization</h1>
+        <p>FlyRank ML Internship Capstone Project</p>
+        <p><strong>Author:</strong> Dharshini</p>
+        <p><strong>Lane:</strong> Content Decline Prediction</p>
+        <p><strong>Dataset:</strong> FlyRank Internship — Pseudonymized Warehouse Release (v20260703)</p>
+    </header>
+
+    <hr>
+
+    <nav>
+        <h2>Contents</h2>
+        <ul>
+            <li><a href="#introduction">Introduction</a></li>
+            <li><a href="#data">Dataset and Preparation</a></li>
+            <li><a href="#method">Methodology</a></li>
+            <li><a href="#baselines">Baseline Comparison</a></li>
+            <li><a href="#results">Model Results</a></li>
+            <li><a href="#evaluation">Evaluation</a></li>
+            <li><a href="#recommendations">Ranked Recommendations</a></li>
+            <li><a href="#limitations">Limitations and Solutions</a></li>
+            <li><a href="#reproducibility">Reproducibility</a></li>
+            <li><a href="#acknowledgments">Acknowledgments</a></li>
+        </ul>
+    </nav>
+
+    <hr>
+
+    <main>
+        <section id="introduction">
+            <h2>1. Introduction</h2>
+            <p>
+                This project investigates whether historical search-performance
+                metrics can help identify content items that may experience a
+                significant decline in future search impressions.
+            </p>
+            <p>
+                The objective is to support FlyRank editors in prioritizing
+                content for investigation using historical impressions, clicks,
+                average search position, and reporting-data availability.
+            </p>
+            <p>
+                The model provides a decision-support signal. It does not
+                automatically decide which pages should be refreshed.
+            </p>
+        </section>
+
+        <section id="data">
+            <h2>2. Dataset and Preparation</h2>
+            <p>
+                The project uses the FlyRank Internship — Pseudonymized
+                Warehouse Release (v20260703), a frozen warehouse snapshot
+                exported on July 3, 2026.
+            </p>
+            <p><strong>Dataset repository:</strong>
+                <a href="https://huggingface.co/datasets/FlyRank/internship-warehouse">
+                    FlyRank/internship-warehouse
+                </a>
+            </p>
+            <p>The analysis uses:</p>
+            <ul>
+                <li><code>dim_content</code> for schema inspection and content metadata.</li>
+                <li><code>fact_content_daily_performance</code> for daily search-performance metrics.</li>
+            </ul>
+            <p>
+                Monthly performance partitions from March through June 2026
+                were aggregated by pseudonymous client-content pair. Records
+                required at least 15 days of available Google Search Console
+                data per month. Records with zero current-month average daily
+                impressions were excluded from target construction.
+            </p>
+            <p><strong>Matched content-month records:</strong> 338,853</p>
+            <p>
+                Pseudonymous identifiers were used for matching records only,
+                not as model features. Future outcomes and label-derived fields
+                were excluded from the predictive inputs.
+            </p>
+        </section>
+
+        <section id="method">
+            <h2>3. Methodology</h2>
+            <h3>Research question</h3>
+            <p>
+                Can current-month search-performance metrics identify content
+                items that experience at least a 20% decline in average daily
+                impressions in the following month?
+            </p>
+
+            <h3>Target definition</h3>
+            <p>
+                A record is labelled as a decline when next-month average daily
+                impressions are less than or equal to 80% of current-month
+                average daily impressions.
+            </p>
+            <ul>
+                <li><strong>1:</strong> Decline of at least 20%.</li>
+                <li><strong>0:</strong> Decline of less than 20%, no decline, or an increase.</li>
+            </ul>
+
+            <h3>Model features</h3>
+            <ol>
+                <li><code>current_impressions</code></li>
+                <li><code>current_clicks</code></li>
+                <li><code>current_position</code></li>
+                <li><code>current_available_days</code></li>
+            </ol>
+
+            <h3>Model</h3>
+            <p>
+                Logistic Regression was implemented using a Scikit-learn
+                pipeline with median imputation, feature standardization,
+                and Logistic Regression. The model uses class weighting,
+                max_iter=500, random_state=42, and a classification threshold
+                of 0.5.
+            </p>
+        </section>
+
+        <section id="baselines">
+            <h2>4. Baseline Comparison</h2>
+            <p>Two simple baselines were evaluated against the model.</p>
+            <ol>
+                <li>
+                    <strong>Majority-class baseline:</strong>
+                    predicts the training-set majority class for every test record.
+                </li>
+                <li>
+                    <strong>Low-impressions rule:</strong>
+                    predicts decline when current impressions are below the
+                    median current impressions in the training data.
+                </li>
+            </ol>
+
+            <table border="1">
+                <caption>Classification performance on the test set</caption>
+                <thead>
+                    <tr>
+                        <th>Model</th>
+                        <th>Accuracy</th>
+                        <th>Precision</th>
+                        <th>Recall</th>
+                        <th>F1-score</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Majority baseline</td>
+                        <td>41.68%</td>
+                        <td>0.00%</td>
+                        <td>0.00%</td>
+                        <td>0.0000</td>
+                    </tr>
+                    <tr>
+                        <td>Low-impressions rule</td>
+                        <td>43.97%</td>
+                        <td>52.15%</td>
+                        <td>47.77%</td>
+                        <td>0.4986</td>
+                    </tr>
+                    <tr>
+                        <td>Logistic Regression</td>
+                        <td>60.93%</td>
+                        <td>64.14%</td>
+                        <td>74.89%</td>
+                        <td>0.6910</td>
+                    </tr>
+                </tbody>
+            </table>
+            <p>
+                Logistic Regression outperformed both baselines on the reported
+                classification metrics using the same test observations.
+            </p>
+        </section>
+
+        <section id="results">
+            <h2>5. Model Results</h2>
+            <table border="1">
+                <caption>Logistic Regression test performance</caption>
+                <tbody>
+                    <tr><th>Metric</th><th>Result</th></tr>
+                    <tr><td>Accuracy</td><td>0.6093</td></tr>
+                    <tr><td>Precision</td><td>0.6414</td></tr>
+                    <tr><td>Recall</td><td>0.7489</td></tr>
+                    <tr><td>F1-score</td><td>0.6910</td></tr>
+                    <tr><td>ROC-AUC</td><td>0.6004</td></tr>
+                    <tr><td>Average Precision</td><td>0.6540</td></tr>
+                </tbody>
+            </table>
+            <p>
+                The model identifies approximately 74.89% of actual declining
+                records at the 0.5 classification threshold. Its ROC-AUC of
+                0.6004 indicates modest ability to distinguish declining from
+                non-declining records.
+            </p>
+        </section>
+
+        <section id="evaluation">
+            <h2>6. Evaluation Strategy</h2>
+            <table border="1">
+                <thead>
+                    <tr><th>Dataset</th><th>Feature period</th><th>Outcome period</th><th>Records</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td>Training</td><td>March–April 2026</td><td>April–May 2026</td><td>225,517</td></tr>
+                    <tr><td>Testing</td><td>May 2026</td><td>June 2026</td><td>113,336</td></tr>
+                    <tr><td>Total</td><td>March–May 2026</td><td>April–June 2026</td><td>338,853</td></tr>
+                </tbody>
+            </table>
+            <p><strong>Training decline rate:</strong> 49.49%</p>
+            <p><strong>Test decline rate:</strong> 58.32%</p>
+            <p>
+                A chronological split was used to preserve time order.
+                However, the same content-client pair may appear in both
+                training and testing periods. The evaluation therefore does
+                not establish performance on entirely unseen content or clients.
+            </p>
+        </section>
+
+        <section id="recommendations">
+            <h2>7. Ranked Recommendations</h2>
+            <p>
+                The ranked output orders test records by predicted probability
+                of next-month decline. The following tiers are capacity-based
+                editorial review recommendations, not validated probability
+                thresholds.
+            </p>
+
+            <h3>Priority 1: High-priority review</h3>
+            <p>Top 10% of ranked records.</p>
+            <ul>
+                <li>Inspect impressions, clicks, and average-position changes.</li>
+                <li>Check whether information is outdated.</li>
+                <li>Review search-intent alignment before considering a refresh.</li>
+            </ul>
+
+            <h3>Priority 2: Investigate</h3>
+            <p>Next 20% of ranked records.</p>
+            <ul>
+                <li>Verify reporting-data availability.</li>
+                <li>Monitor performance changes.</li>
+                <li>Review possible relevance or freshness issues.</li>
+            </ul>
+
+            <h3>Priority 3: Monitor</h3>
+            <p>Remaining 70% of ranked records.</p>
+            <ul>
+                <li>Continue routine monthly monitoring.</li>
+                <li>Avoid unnecessary content changes.</li>
+                <li>Reassess when new performance data becomes available.</li>
+            </ul>
+
+            <p>
+                Editors should verify the underlying evidence before taking
+                action. Predictions are prioritization signals, not automatic
+                refresh instructions.
+            </p>
+            <p>
+                <strong>Public recommendations:</strong>
+                Add a link here after committing the generated
+                <code>top20_recommendations_public.csv</code> file to the repository.
+            </p>
+        </section>
+
+        <section id="limitations">
+            <h2>8. Limitations and Proposed Solutions</h2>
+            <ol>
+                <li>
+                    <strong>Moderate predictive discrimination:</strong>
+                    ROC-AUC is 0.6004. Benchmark Random Forest and Gradient
+                    Boosting on the same temporal split.
+                </li>
+                <li>
+                    <strong>Limited evaluation period:</strong>
+                    Only one test feature month was evaluated. Use rolling
+                    time-based validation across multiple months.
+                </li>
+                <li>
+                    <strong>Repeated-content overlap:</strong>
+                    The same content may occur in training and testing.
+                    Add content-grouped evaluation and, where relevant,
+                    held-out-client evaluation.
+                </li>
+                <li>
+                    <strong>Search-data availability:</strong>
+                    The 15-day reporting requirement excludes some low-volume
+                    or unindexed items. Evaluate performance across
+                    availability tiers and do not treat missing data as zero.
+                </li>
+                <li>
+                    <strong>Narrow target definition:</strong>
+                    A 20% impressions decline does not prove content decay
+                    or show that refreshing content will help. Use editorial
+                    review and search-intent checks.
+                </li>
+                <li>
+                    <strong>Fixed threshold and calibration:</strong>
+                    A 0.5 threshold may not suit editorial capacity, and
+                    class weighting may affect probability calibration.
+                    Evaluate thresholds and calibration on validation data.
+                </li>
+                <li>
+                    <strong>Limited feature coverage:</strong>
+                    The model uses four performance features. Test additional
+                    leak-free historical and content features on validation
+                    data before including them.
+                </li>
+            </ol>
+        </section>
+
+        <section id="reproducibility">
+            <h2>9. Reproducibility</h2>
+            <p>
+                The analysis was developed in Python using Google Colab,
+                pandas, NumPy, DuckDB, Hugging Face Hub, PyArrow,
+                Scikit-learn, and Matplotlib.
+            </p>
+            <p><strong>Notebook:</strong>
+                <a href="https://colab.research.google.com/github/dharshinianand19/FlyRank-Starters/blob/main/work/notebooks/capstone.ipynb">
+                    Open capstone notebook in Google Colab
+                </a>
+            </p>
+            <p><strong>Repository:</strong>
+                <a href="https://github.com/dharshinianand19/FlyRank-Starters">
+                    FlyRank-Starters on GitHub
+                </a>
+            </p>
+            <p>Install the main dependencies:</p>
+            <pre><code>pip install duckdb huggingface_hub pandas numpy pyarrow scikit-learn matplotlib</code></pre>
+            <p>
+                Authenticate with Hugging Face, run the notebook from top to
+                bottom, and retain the same dataset release and date windows.
+                The model uses random_state=42. The temporal split itself is
+                deterministic.
+            </p>
+            <p>
+                Before submission, commit the generated metrics file and
+                public-safe artifacts. Do not publish authentication tokens
+                or identifier-bearing operational outputs.
+            </p>
+        </section>
+
+        <section id="acknowledgments">
+            <h2>10. Acknowledgments and Data Credit</h2>
+            <p>
+                This project was completed as part of the FlyRank ML Internship.
+                It uses the FlyRank Internship Pseudonymized Warehouse Release
+                for analysis of historical search-performance patterns.
+            </p>
+            <p>
+                Built on the
+                <a href="https://flyrank.ai">FlyRank ML Internship dataset</a>.
+            </p>
+        </section>
+    </main>
+
+    <hr>
+
+    <footer>
+        <p>
+            This project provides observational, decision-support analysis.
+            It does not make causal claims or predict Google's ranking algorithm.
+        </p>
+    </footer>
+
+</body>
+</html>
